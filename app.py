@@ -7,7 +7,7 @@ import json
 st.set_page_config(page_title="스마트 영양사 프로", page_icon="🍎", layout="centered")
 
 # --- 2. API 키 및 모델 설정 ---
-api_key = st.secrets["GOOGLE_API_KEY"] 
+api_key = st.secrets["GEMINI_API_KEY"] 
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel('gemini-2.5-flash')
 
