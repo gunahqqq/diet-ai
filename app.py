@@ -3,15 +3,19 @@ import google.generativeai as genai
 from PIL import Image
 import json
 import pandas as pd
-from duckduckgo_search import DDGS  # 💡 인터넷 검색을 대신해 줄 파이썬 로봇
 
 # --- 1. 기본 UI 설정 ---
-st.set_page_config(page_title="스마트 영양사 프로", page_icon="🍎", layout="wide")
+st.set_page_config(page_title="스마트 영양사 프로 (Gemini 3.5 Flash)", page_icon="🍎", layout="wide")
 
-# --- 2. API 키 및 최신 모델 설정 ---
+# --- 2. API 키 및 최신 3.5 Flash 모델 설정 ---
 api_key = st.secrets["GEMINI_API_KEY"] 
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-2.5-flash')
+
+# 💡 최신 에이전트 기능 특화! 오류 없이 실시간 구글 검색을 완벽하게 소화합니다.
+model = genai.GenerativeModel(
+    model_name='gemini-3.5-flash',
+    tools='google_search'
+)
 
 # --- 3. 사이드바: 기기 최적화 및 프로필 설정 ---
 with st.sidebar:
@@ -47,49 +51,37 @@ with st.sidebar:
 if 'cal' not in st.session_state:
     st.session_state.update({"cal": 0, "carb": 0, "protein": 0, "fat": 0})
 
-# --- 5. 실시간 검색 결과를 주입받는 프롬프트 ---
+# --- 5. 초정밀 팩트 기반 프롬프트 세팅 ---
 mode_instructions = ""
 if shift_mode:
     mode_instructions += "\n* [근무 모드] 야간/교대 근무 중입니다. 소화 부담에 대한 조언을 1줄 추가하세요."
 if junior_mode:
     mode_instructions += "\n* [주니어 모드] 성장기 아이 식단입니다. 당류 제한에 초점을 맞춰 피드백하세요."
 
-# 💡 함수: 사용자가 입력한 음식을 인터넷에 직접 검색해서 텍스트로 긁어오는 로봇
-def get_web_search_context(query):
-    try:
-        results = DDGS().text(f"{query} 영양성분 칼로리 공식", max_results=3)
-        search_text = "\n".join([r['body'] for r in results])
-        return search_text
-    except Exception as e:
-        return ""
+system_prompt = f"""
+당신은 팩트와 수치에 집착하는 아주 엄격한 스마트 영양사입니다. 
+제공된 텍스트나 사진을 분석하여 영양 성분을 계산할 때, 아래 규칙을 무조건 지키세요.
 
-def generate_nutrition_prompt(user_input, search_context):
-    return f"""
-    당신은 스마트 영양사입니다. 제공된 텍스트나 사진을 분석하여 영양 성분을 계산하세요. 
-    
-    [실시간 웹 검색 데이터]
-    아래는 방금 인터넷에서 실시간으로 검색해 온 '{user_input}'의 영양 정보입니다. 
-    당신의 기존 지식보다 이 데이터를 최우선으로 신뢰하여 오차 없이 정확한 수치를 도출하세요.
-    데이터: {search_context}
-    
-    * [다인분/잔반 분할] 섭취 비율이 적혀있거나 먹고 남은 사진이 있다면 '실제로 섭취한 내 몫'만 계산하세요.{mode_instructions}
+1. [강제 검색] 사용자가 특정 프랜차이즈나 음식 이름(예: 파스쿠찌 아이스 카페라떼)을 입력하면, 반드시 실시간 구글 검색을 통해 최신 공식 영양성분 데이터를 찾아보세요.
+2. [유추 절대 금지] 검색된 '공식 데이터'의 수치를 오차 없이 그대로 출력하세요.
+3. [다인분/잔반 분할] 섭취 비율이 적혀있거나 먹고 남은 사진이 있다면, 전체 수치에서 '실제로 섭취한 내 몫'만 계산하세요.{mode_instructions}
 
-    반드시 아래의 [형식]에 맞춰 두 부분으로 나누어 출력하세요. '---DATA---' 아래에는 오직 JSON만 적어야 합니다.
+반드시 아래의 [형식]에 맞춰 두 부분으로 나누어 출력하세요. '---DATA---' 아래에는 오직 JSON만 적어야 합니다.
 
-    [형식]
-    [식단 기록용 요약]
-    * 메뉴명: [음식 이름 (브랜드 반영)]
-    * 총 칼로리: [000] kcal
-    * 탄수화물: [00] g
-    * 단백질: [00] g
-    * 지방: [00] g
-    * 당류: [00] g
-    * 나트륨: [000] mg
-    * AI 코멘트: [활동량에 맞춘 피드백 1줄 작성]
+[형식]
+[식단 기록용 요약]
+* 메뉴명: [음식 이름 (브랜드 반영)]
+* 총 칼로리: [000] kcal
+* 탄수화물: [00] g
+* 단백질: [00] g
+* 지방: [00] g
+* 당류: [00] g
+* 나트륨: [000] mg
+* AI 코멘트: [피드백 1줄 작성]
 
-    ---DATA---
-    {{"cal": 0, "carb": 0, "protein": 0, "fat": 0}}
-    """
+---DATA---
+{{"cal": 0, "carb": 0, "protein": 0, "fat": 0}}
+"""
 
 # 결과 처리 함수
 def process_response(response_text):
@@ -100,7 +92,7 @@ def process_response(response_text):
         st.session_state.carb += int(data.get("carb", 0))
         st.session_state.protein += int(data.get("protein", 0))
         st.session_state.fat += int(data.get("fat", 0))
-        st.success("✨ 분석 완료! 아래의 텍스트를 복사하세요.")
+        st.success("✨ Gemini 3.5 Flash 검색 완료! 아래 결과를 확인하세요.")
         st.code(text_part.strip(), language="text")
     except Exception as e:
         st.warning("데이터 추출에는 실패했지만, 분석 결과는 다음과 같습니다.")
@@ -115,16 +107,7 @@ def render_dashboard():
     dash_c3.metric("단백질", f"{st.session_state.protein} / {target_protein}g")
     dash_c4.metric("지방", f"{st.session_state.fat} / {target_fat}g")
     
-    df = pd.DataFrame([{
-        "날짜": "오늘",
-        "총 칼로리": st.session_state.cal, "탄수화물": st.session_state.carb,
-        "단백질": st.session_state.protein, "지방": st.session_state.fat
-    }])
-    csv = df.to_csv(index=False).encode('utf-8-sig')
-    
     col_dl, col_rs = st.columns(2)
-    with col_dl:
-        st.download_button("📥 엑셀 다운로드", data=csv, file_name="report.csv", mime="text/csv", use_container_width=True)
     with col_rs:
         if st.button("🔄 기록 초기화", use_container_width=True):
             st.session_state.update({"cal": 0, "carb": 0, "protein": 0, "fat": 0})
@@ -138,10 +121,12 @@ def render_input_area():
     if st.button("사진 영양 분석하기", use_container_width=True):
         if uploaded_files:
             images = [Image.open(f) for f in uploaded_files]
-            with st.spinner("웹에서 실시간 영양 데이터를 수집 중입니다..."):
-                search_data = get_web_search_context(extra_info if extra_info else "일반 음식")
-                final_prompt = generate_nutrition_prompt(extra_info, search_data)
-                response = model.generate_content([final_prompt] + images)
+            content_to_send = [system_prompt]
+            if extra_info:
+                content_to_send.append(f"사용자 추가 설명: {extra_info}")
+            content_to_send.extend(images)
+            with st.spinner("Gemini 3.5 Flash가 초고속 실시간 검색 중입니다..."):
+                response = model.generate_content(content_to_send)
                 return response.text
         else:
             st.warning("사진을 업로드해주세요!")
@@ -153,10 +138,8 @@ def render_input_area():
     food_text = st.text_area("사진이 없다면 글로 적어주세요.", placeholder="예: 파스쿠찌 아이스 카페라떼 레귤러", height=100)
     if st.button("텍스트 영양 분석하기", use_container_width=True):
         if food_text:
-            with st.spinner("웹에서 실시간 영양 데이터를 수집 중입니다..."):
-                search_data = get_web_search_context(food_text)
-                final_prompt = generate_nutrition_prompt(food_text, search_data)
-                response = model.generate_content([final_prompt])
+            with st.spinner("Gemini 3.5 Flash가 초고속 실시간 검색 중입니다..."):
+                response = model.generate_content([system_prompt, food_text])
                 return response.text
         else:
             st.warning("텍스트를 입력해주세요!")
@@ -164,7 +147,7 @@ def render_input_area():
     return None
 
 # --- 6. 화면 구성 ---
-st.title("🍎 스마트 영양사 프로 (Live DB Edition)")
+st.title("🍎 스마트 영양사 프로 (Gemini 3.5 Flash)")
 
 if "모바일" in layout_mode:
     render_dashboard()
