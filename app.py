@@ -13,7 +13,7 @@ api_key = st.secrets["GEMINI_API_KEY"]
 
 # 💡 핵심: 패키지 의존성을 버리고, 구글 서버와 직접 통신하는 다이렉트 함수!
 def call_gemini_direct(prompt, images=[]):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
     
     # 텍스트 데이터 포장
     parts = [{"text": prompt}]
