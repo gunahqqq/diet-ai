@@ -12,7 +12,7 @@ api_key = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=api_key)
 model = genai.GenerativeModel(
     model_name='gemini-2.5-flash',
-    tools='google_search_retrieval'
+    tools='google_search'
 )
 
 # --- 3. 사이드바: 기기 최적화 및 프로필 설정 ---
