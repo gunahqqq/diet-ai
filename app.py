@@ -4,16 +4,27 @@ from PIL import Image
 import json
 import pandas as pd
 
-# --- 1. 태블릿 최적화 와이드 레이아웃 ---
+# --- 1. 기본 UI 설정 (넓게 쓰기) ---
 st.set_page_config(page_title="스마트 영양사 프로", page_icon="🍎", layout="wide")
 
-# --- 2. API 키 및 모델 설정 ---
+# --- 2. API 키 및 모델 설정 (구글 검색 활성화) ---
 api_key = st.secrets["GEMINI_API_KEY"] 
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-2.5-flash')
+model = genai.GenerativeModel(
+    model_name='gemini-2.5-flash',
+    tools='google_search_retrieval'
+)
 
-# --- 3. 사이드바: 맞춤형 프로필 & 스마트 모드 ---
+# --- 3. 사이드바: 기기 최적화 및 프로필 설정 ---
 with st.sidebar:
+    st.header("📱 화면 레이아웃 설정")
+    # 기기에 맞게 사용자가 직접 UI를 선택할 수 있는 스위치
+    layout_mode = st.radio(
+        "현재 사용 중인 기기에 맞춰 선택하세요:",
+        ["📱 모바일 최적화 (세로형)", "🖥️ 태블릿 최적화 (좌우 분할)"]
+    )
+    st.divider()
+
     st.header("👤 나의 상태 및 설정")
     weight = st.number_input("체중 (kg)", min_value=30, max_value=150, value=70)
     
@@ -24,7 +35,7 @@ with st.sidebar:
     shift_mode = st.toggle("🌙 야간 근무/당직 모드 (새벽 식사 포함)")
     junior_mode = st.toggle("👧 성장기 주니어 모드 (아이 맞춤 영양)")
 
-    # 목표량 자동 계산
+    # 목표량 계산
     base_cal = weight * 24 * 1.2
     burned_cal = running_km * 70
     target_cal = int(base_cal + burned_cal)
@@ -40,7 +51,7 @@ with st.sidebar:
 if 'cal' not in st.session_state:
     st.session_state.update({"cal": 0, "carb": 0, "protein": 0, "fat": 0})
 
-# --- 5. 모든 기능(분할, 성분표, 모드)을 포함한 궁극의 프롬프트 ---
+# --- 5. 프롬프트 (기존과 동일) ---
 mode_instructions = ""
 if shift_mode:
     mode_instructions += "\n* [근무 모드] 사용자가 교대/야간 근무 중입니다. 새벽 식사도 하루 누적에 정상 포함하며, 야간 소화 부담에 대한 조언을 1줄 추가하세요."
@@ -49,15 +60,16 @@ if junior_mode:
 
 system_prompt = f"""
 당신은 스마트 영양사입니다. 제공된 텍스트나 사진을 분석하여 영양 성분을 계산하세요. 
-* [다인분/잔반 분할] '추가 설명'에 다인분 중 섭취 비율이 적혀있거나 '먹고 남은 사진'이 함께 있다면, 반드시 '실제로 섭취한 내 몫'만 계산하세요.
-* [영양성분표 직독직해] 가공식품의 영양성분표 사진이 제공된 경우, 이미지 속 수치를 OCR 하듯 오차 없이 추출하여 반영하세요.{mode_instructions}
+* [구글 공식 데이터 검색] 사용자가 특정 브랜드명과 제품명을 입력하면, 반드시 실시간 구글 검색을 활용하여 공식 홈페이지나 공신력 있는 DB의 정확한 영양성분을 찾아 반영하세요.
+* [다인분/잔반 분할] '추가 설명'에 섭취 비율이 적혀있거나 '먹고 남은 사진'이 있다면, '실제로 섭취한 내 몫'만 계산하세요.
+* [영양성분표 직독직해] 영양성분표 사진이 제공된 경우, 이미지 속 수치를 오차 없이 추출하세요.{mode_instructions}
 
 반드시 아래의 [형식]에 맞춰 두 부분으로 나누어 출력하세요. 
 '---DATA---' 아래에는 오직 JSON만 적어야 합니다.
 
 [형식]
 [식단 기록용 요약]
-* 메뉴명: [음식/제품 이름 (비율/잔반 반영)]
+* 메뉴명: [음식/제품 이름 (브랜드 및 잔반 반영)]
 * 총 칼로리: [000] kcal
 * 탄수화물: [00] g
 * 단백질: [00] g
@@ -85,17 +97,36 @@ def process_response(response_text):
         st.warning("데이터 추출에는 실패했지만, 분석 결과는 다음과 같습니다.")
         st.code(response_text, language="text")
 
-# --- 6. 화면 구성 (좌/우 분할) ---
-st.title("🍎 스마트 영양사 프로 (Ultimate Edition)")
-
-left_col, right_col = st.columns([1, 1], gap="large")
-
-with left_col:
-    st.subheader("📸 사진 및 영양성분표 스캔")
-    st.info("💡 식탁 전체 사진을 올리고 '내가 절반만 먹었어'라고 적거나, 제품 뒷면의 성분표를 올려보세요.")
+# --- UI 요소들을 렌더링하는 함수들 ---
+def render_dashboard():
+    st.subheader("📊 오늘의 누적 대시보드")
+    dash_c1, dash_c2, dash_c3, dash_c4 = st.columns(4)
+    dash_c1.metric("칼로리", f"{st.session_state.cal} / {target_cal}")
+    dash_c2.metric("탄수화물", f"{st.session_state.carb} / {target_carb}g")
+    dash_c3.metric("단백질", f"{st.session_state.protein} / {target_protein}g")
+    dash_c4.metric("지방", f"{st.session_state.fat} / {target_fat}g")
     
+    df = pd.DataFrame([{
+        "날짜": "오늘",
+        "총 칼로리 (kcal)": st.session_state.cal,
+        "탄수화물 (g)": st.session_state.carb,
+        "단백질 (g)": st.session_state.protein,
+        "지방 (g)": st.session_state.fat
+    }])
+    csv = df.to_csv(index=False).encode('utf-8-sig')
+    
+    col_dl, col_rs = st.columns(2)
+    with col_dl:
+        st.download_button("📥 엑셀(CSV) 다운로드", data=csv, file_name="report.csv", mime="text/csv", use_container_width=True)
+    with col_rs:
+        if st.button("🔄 오늘 기록 초기화", use_container_width=True):
+            st.session_state.update({"cal": 0, "carb": 0, "protein": 0, "fat": 0})
+            st.rerun()
+
+def render_input_area():
+    st.subheader("📸 사진 및 영양성분표 스캔")
     uploaded_files = st.file_uploader("📂 사진 선택 (여러 장 가능)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-    extra_info = st.text_input("📝 추가 설명 (선택)", placeholder="예: 3인분 중 1/3만 먹음, 영양성분표 사진이야 등")
+    extra_info = st.text_input("📝 추가 설명 (선택)", placeholder="예: 스타벅스 아이스 카라멜 마끼아또 그란데 사이즈")
     
     if st.button("사진 영양 분석하기", use_container_width=True):
         if uploaded_files:
@@ -104,65 +135,52 @@ with left_col:
             if extra_info:
                 content_to_send.append(f"사용자 추가 설명: {extra_info}")
             content_to_send.extend(images)
-            
-            with st.spinner("사진과 설명을 꼼꼼히 분석 중입니다..."):
+            with st.spinner("구글 검색 및 데이터 분석 중입니다..."):
                 response = model.generate_content(content_to_send)
-                with right_col:
-                    process_response(response.text)
+                return response.text
         else:
             st.warning("사진을 업로드해주세요!")
+            return None
             
     st.divider()
     
     st.subheader("✍️ 텍스트 간편 입력")
-    food_text = st.text_area("사진이 없다면 글로 적어주세요.", placeholder="예: 점심으로 된장찌개랑 현미밥 먹었어", height=100)
-    
+    food_text = st.text_area("사진이 없다면 글로 적어주세요.", placeholder="예: 굽네치킨 고추바사삭 순살 반 마리 먹었어", height=100)
     if st.button("텍스트 영양 분석하기", use_container_width=True):
         if food_text:
-            with st.spinner("문맥을 파악 중입니다..."):
+            with st.spinner("구글 검색 및 문맥 파악 중입니다..."):
                 response = model.generate_content([system_prompt, food_text])
-                with right_col:
-                    process_response(response.text)
+                return response.text
         else:
             st.warning("텍스트를 입력해주세요!")
+            return None
+    return None
 
-with right_col:
-    st.subheader("📊 오늘의 누적 대시보드")
-    
-    dash_c1, dash_c2, dash_c3, dash_c4 = st.columns(4)
-    dash_c1.metric("칼로리", f"{st.session_state.cal} / {target_cal}")
-    dash_c2.metric("탄수화물", f"{st.session_state.carb} / {target_carb}g")
-    dash_c3.metric("단백질", f"{st.session_state.protein} / {target_protein}g")
-    dash_c4.metric("지방", f"{st.session_state.fat} / {target_fat}g")
-    
+
+# --- 6. 선택된 모드에 따른 화면 구성 ---
+st.title("🍎 스마트 영양사 프로")
+
+if "모바일" in layout_mode:
+    # 모바일 모드: 위에서 아래로 세로 배치 (대시보드 -> 입력창 -> 결과)
+    render_dashboard()
     st.divider()
+    result = render_input_area()
+    if result:
+        st.divider()
+        st.markdown("### 📋 분석 결과 화면")
+        process_response(result)
+
+else:
+    # 태블릿 모드: 좌우 1:1 분할 배치
+    left_col, right_col = st.columns([1, 1], gap="large")
     
-    # --- [신규 기능] CSV 다운로드 ---
-    st.subheader("💾 건강 데이터 리포트")
-    # 세션 상태 데이터를 Pandas DataFrame으로 변환
-    df = pd.DataFrame([{
-        "날짜": "오늘",
-        "총 칼로리 (kcal)": st.session_state.cal,
-        "탄수화물 (g)": st.session_state.carb,
-        "단백질 (g)": st.session_state.protein,
-        "지방 (g)": st.session_state.fat
-    }])
-    csv = df.to_csv(index=False).encode('utf-8-sig') # 한글 깨짐 방지 utf-8-sig
-    
-    col_dl, col_rs = st.columns(2)
-    with col_dl:
-        st.download_button(
-            label="📥 데이터 엑셀(CSV) 다운로드",
-            data=csv,
-            file_name="today_nutrition_report.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-    with col_rs:
-        if st.button("🔄 오늘 기록 초기화", use_container_width=True):
-            st.session_state.update({"cal": 0, "carb": 0, "protein": 0, "fat": 0})
-            st.rerun()
-            
-    st.divider()
-    st.markdown("### 📋 분석 결과 화면")
-    st.caption("👈 왼쪽에서 분석을 실행하면 이곳에 상세 결과가 나타납니다.")
+    with left_col:
+        result = render_input_area()
+        
+    with right_col:
+        render_dashboard()
+        st.divider()
+        st.markdown("### 📋 분석 결과 화면")
+        st.caption("👈 왼쪽에서 분석을 실행하면 이곳에 상세 결과가 나타납니다.")
+        if result:
+            process_response(result)
