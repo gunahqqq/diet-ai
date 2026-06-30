@@ -7,18 +7,19 @@ import pandas as pd
 # --- 1. 기본 UI 설정 (넓게 쓰기) ---
 st.set_page_config(page_title="스마트 영양사 프로", page_icon="🍎", layout="wide")
 
-# --- 2. API 키 및 모델 설정 (구글 검색 활성화) ---
+# --- 2. API 키 및 모델 설정 (버전 충돌 완벽 해결) ---
 api_key = st.secrets["GEMINI_API_KEY"] 
 genai.configure(api_key=api_key)
+
+# 💡 모델을 1.5-flash로 맞추고, 패키지가 허용하는 검색 명령어를 사용합니다.
 model = genai.GenerativeModel(
-    model_name='gemini-2.5-flash',
-    tools='google_search'
+    model_name='gemini-1.5-flash',
+    tools='google_search_retrieval'
 )
 
 # --- 3. 사이드바: 기기 최적화 및 프로필 설정 ---
 with st.sidebar:
     st.header("📱 화면 레이아웃 설정")
-    # 기기에 맞게 사용자가 직접 UI를 선택할 수 있는 스위치
     layout_mode = st.radio(
         "현재 사용 중인 기기에 맞춰 선택하세요:",
         ["📱 모바일 최적화 (세로형)", "🖥️ 태블릿 최적화 (좌우 분할)"]
@@ -51,7 +52,7 @@ with st.sidebar:
 if 'cal' not in st.session_state:
     st.session_state.update({"cal": 0, "carb": 0, "protein": 0, "fat": 0})
 
-# --- 5. 프롬프트 (기존과 동일) ---
+# --- 5. 실시간 검색 및 다기능 프롬프트 ---
 mode_instructions = ""
 if shift_mode:
     mode_instructions += "\n* [근무 모드] 사용자가 교대/야간 근무 중입니다. 새벽 식사도 하루 누적에 정상 포함하며, 야간 소화 부담에 대한 조언을 1줄 추가하세요."
@@ -126,7 +127,7 @@ def render_dashboard():
 def render_input_area():
     st.subheader("📸 사진 및 영양성분표 스캔")
     uploaded_files = st.file_uploader("📂 사진 선택 (여러 장 가능)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-    extra_info = st.text_input("📝 추가 설명 (선택)", placeholder="예: 스타벅스 아이스 카라멜 마끼아또 그란데 사이즈")
+    extra_info = st.text_input("📝 추가 설명 (선택)", placeholder="예: 파스쿠찌 아이스 카페라떼 레귤러")
     
     if st.button("사진 영양 분석하기", use_container_width=True):
         if uploaded_files:
@@ -145,7 +146,7 @@ def render_input_area():
     st.divider()
     
     st.subheader("✍️ 텍스트 간편 입력")
-    food_text = st.text_area("사진이 없다면 글로 적어주세요.", placeholder="예: 굽네치킨 고추바사삭 순살 반 마리 먹었어", height=100)
+    food_text = st.text_area("사진이 없다면 글로 적어주세요.", placeholder="예: 파스쿠찌 아이스 카페라떼 레귤러", height=100)
     if st.button("텍스트 영양 분석하기", use_container_width=True):
         if food_text:
             with st.spinner("구글 검색 및 문맥 파악 중입니다..."):
@@ -156,12 +157,11 @@ def render_input_area():
             return None
     return None
 
-
 # --- 6. 선택된 모드에 따른 화면 구성 ---
 st.title("🍎 스마트 영양사 프로")
 
 if "모바일" in layout_mode:
-    # 모바일 모드: 위에서 아래로 세로 배치 (대시보드 -> 입력창 -> 결과)
+    # 모바일 모드: 위에서 아래로 세로 배치
     render_dashboard()
     st.divider()
     result = render_input_area()
