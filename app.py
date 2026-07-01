@@ -75,7 +75,7 @@ def analyze(mode, text, image=None):
         contents.append(image)
         
     response = client.models.generate_content(
-        model='gemini-3.5-flash',
+        model='gemini-2.0-flash',
         contents=contents,
         config={
             "tools": [{"google_search": {}}],
